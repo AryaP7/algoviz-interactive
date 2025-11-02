@@ -1,10 +1,19 @@
 import { useState, useEffect, useRef } from "react";
-import { AlgorithmSelector } from "@/components/AlgorithmSelector";
+import { CategorySidebar } from "@/components/CategorySidebar";
 import { VisualizationCanvas } from "@/components/VisualizationCanvas";
+import { GraphVisualization } from "@/components/GraphVisualization";
 import { ControlPanel } from "@/components/ControlPanel";
 import { MetricsPanel } from "@/components/MetricsPanel";
 import { InputConfigurator } from "@/components/InputConfigurator";
-import { bubbleSort, quickSort, mergeSort, AlgorithmStep } from "@/utils/sortingAlgorithms";
+import { CodeViewer } from "@/components/CodeViewer";
+import { StepDescription } from "@/components/StepDescription";
+import { bubbleSort, quickSort, mergeSort } from "@/utils/sortingAlgorithms";
+import { heapSort } from "@/utils/heapSort";
+import { insertionSort } from "@/utils/insertionSort";
+import { bfs, dfs, dijkstra, generateSampleGraph } from "@/utils/graphAlgorithms";
+import { linearSearch, binarySearch, jumpSearch } from "@/utils/searchingAlgorithms";
+import { AlgorithmStep } from "@/types/algorithms";
+import { algorithmDatabase } from "@/data/algorithmDatabase";
 import { toast } from "sonner";
 
 const generateArray = (size: number, type: "random" | "sorted" | "reversed" | "nearly-sorted"): number[] => {
@@ -29,10 +38,18 @@ const generateArray = (size: number, type: "random" | "sorted" | "reversed" | "n
   }
 };
 
-const algorithmGenerators = {
+const algorithmGenerators: Record<string, (input: any, target?: number) => Generator<AlgorithmStep>> = {
   bubble: bubbleSort,
   quick: quickSort,
   merge: mergeSort,
+  heap: heapSort,
+  insertion: insertionSort,
+  "linear-search": (arr: number[], target: number) => linearSearch(arr, target || 25),
+  "binary-search": (arr: number[], target: number) => binarySearch(arr, target || 25),
+  "jump-search": (arr: number[], target: number) => jumpSearch(arr, target || 25),
+  bfs: () => bfs(generateSampleGraph()),
+  dfs: () => dfs(generateSampleGraph()),
+  dijkstra: () => dijkstra(generateSampleGraph()),
 };
 
 const timeComplexities = {
@@ -43,6 +60,7 @@ const timeComplexities = {
 
 const Index = () => {
   const [selectedAlgorithm, setSelectedAlgorithm] = useState<string>("bubble");
+  const currentAlgorithm = algorithmDatabase.find((a) => a.id === selectedAlgorithm);
   const [arraySize, setArraySize] = useState(20);
   const [array, setArray] = useState<number[]>(() => generateArray(20, "random"));
   const [isPlaying, setIsPlaying] = useState(false);
@@ -64,11 +82,19 @@ const Index = () => {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const generateSteps = (algorithm: string, inputArray: number[]) => {
-    const generator = algorithmGenerators[algorithm as keyof typeof algorithmGenerators];
+    const generator = algorithmGenerators[algorithm];
     if (!generator) return [];
 
     const stepsArray: AlgorithmStep[] = [];
-    const gen = generator(inputArray);
+    
+    // For search algorithms, use a target value
+    const isSearchAlgorithm = algorithm.includes("search");
+    const sortedArray = isSearchAlgorithm ? [...inputArray].sort((a, b) => a - b) : inputArray;
+    const target = isSearchAlgorithm ? sortedArray[Math.floor(sortedArray.length / 2)] : undefined;
+    
+    // For graph algorithms, don't pass array
+    const isGraphAlgorithm = ["bfs", "dfs", "dijkstra"].includes(algorithm);
+    const gen = isGraphAlgorithm ? generator(null) : generator(sortedArray, target);
     
     let result = gen.next();
     while (!result.done) {
@@ -152,7 +178,9 @@ const Index = () => {
   useEffect(() => {
     if (steps.length > 0 && currentStep < steps.length) {
       const step = steps[currentStep];
-      setArray(step.array);
+      if (step.array) {
+        setArray(step.array);
+      }
       setHighlights({
         comparing: step.comparing,
         swapping: step.swapping,
@@ -171,31 +199,20 @@ const Index = () => {
     handleReset();
   }, [selectedAlgorithm]);
 
+  if (!currentAlgorithm) return null;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/20 flex flex-col">
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="container mx-auto px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-foreground">Algorithm Visualizer</h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                Interactive step-by-step algorithm execution
-              </p>
-            </div>
+        <div className="px-6 py-3 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-bold text-foreground">Algorithm Visualizer Pro</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {algorithmDatabase.length} algorithms across {new Set(algorithmDatabase.map(a => a.category)).size} categories
+            </p>
           </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="container mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Left Sidebar - Algorithm Selection */}
-          <div className="lg:col-span-1 space-y-6">
-            <AlgorithmSelector
-              selectedAlgorithm={selectedAlgorithm}
-              onSelectAlgorithm={setSelectedAlgorithm}
-            />
+          <div className="flex items-center gap-2">
             <InputConfigurator
               arraySize={arraySize}
               onArraySizeChange={setArraySize}
@@ -203,10 +220,41 @@ const Index = () => {
               disabled={isPlaying}
             />
           </div>
+        </div>
+      </header>
 
-          {/* Center - Visualization */}
-          <div className="lg:col-span-2 space-y-6">
-            <VisualizationCanvas array={array} highlights={highlights} />
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar - Category Navigation */}
+        <div className="w-64 flex-shrink-0">
+          <CategorySidebar
+            selectedAlgorithm={selectedAlgorithm}
+            onSelectAlgorithm={setSelectedAlgorithm}
+          />
+        </div>
+
+        {/* Center - Visualization Area */}
+        <div className="flex-1 flex flex-col p-6 overflow-auto">
+          <div className="space-y-4">
+            {/* Step Description */}
+            {steps[currentStep]?.description && (
+              <StepDescription description={steps[currentStep].description} />
+            )}
+            
+            {/* Visualization Canvas */}
+            {currentAlgorithm.visualizationType === "array" && (
+              <VisualizationCanvas array={array} highlights={highlights} />
+            )}
+            {currentAlgorithm.visualizationType === "graph" && steps[currentStep]?.graph && (
+              <GraphVisualization
+                graph={steps[currentStep].graph!}
+                visited={steps[currentStep].visited}
+                current={steps[currentStep].current}
+                path={steps[currentStep].path}
+              />
+            )}
+
+            {/* Control Panel */}
             <ControlPanel
               isPlaying={isPlaying}
               onPlay={handlePlay}
@@ -218,21 +266,33 @@ const Index = () => {
               onSpeedChange={setSpeed}
               disabled={steps.length === 0}
             />
-          </div>
 
-          {/* Right Sidebar - Metrics */}
-          <div className="lg:col-span-1">
-            <MetricsPanel
-              comparisons={metrics.comparisons}
-              swaps={metrics.swaps}
-              arrayAccesses={metrics.arrayAccesses}
-              currentStep={currentStep}
-              totalSteps={steps.length}
-              timeComplexity={timeComplexities[selectedAlgorithm as keyof typeof timeComplexities]}
-            />
+            {/* Metrics and Code Viewer Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-1">
+                <MetricsPanel
+                  comparisons={metrics.comparisons}
+                  swaps={metrics.swaps}
+                  arrayAccesses={metrics.arrayAccesses}
+                  currentStep={currentStep}
+                  totalSteps={steps.length}
+                  timeComplexity={currentAlgorithm.timeComplexity.average}
+                />
+              </div>
+              <div className="lg:col-span-2">
+                <CodeViewer
+                  code={currentAlgorithm.code}
+                  description={currentAlgorithm.description}
+                  algorithmName={currentAlgorithm.name}
+                  timeComplexity={currentAlgorithm.timeComplexity}
+                  spaceComplexity={currentAlgorithm.spaceComplexity}
+                  currentLine={steps[currentStep]?.currentLine}
+                />
+              </div>
+            </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   );
 };

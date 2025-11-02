@@ -1,13 +1,4 @@
-export interface AlgorithmStep {
-  array: number[];
-  comparing?: number[];
-  swapping?: number[];
-  sorted?: number[];
-  pivot?: number;
-  comparisons: number;
-  swaps: number;
-  arrayAccesses: number;
-}
+import { AlgorithmStep } from "@/types/algorithms";
 
 // Bubble Sort
 export function* bubbleSort(arr: number[]): Generator<AlgorithmStep> {
